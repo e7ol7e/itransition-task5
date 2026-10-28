@@ -1,0 +1,43 @@
+WEYLAND-YUTANI	MINING OPERATIONS / GENERATOR										
+Change the amber cells. Data and chart recalculate automatically; no script is required.											
+SIMULATION	VALUE	GUIDANCE	WEEKDAY	FACTOR		MINE INVENTORY	CAPACITY FACTOR				
+Active mines	6	1 to 12; activate named slots in G4:G15	Monday	1		LV-426	1				
+Start date	=DATE(2099,1,1)	Inclusive; dates are actual date values	Tuesday	1		Origae-6	0.85				
+End date	=DATE(2099,6,29)	Inclusive; 3 to 730 days	Wednesday	1.03		Fiorina 161	1.2				
+Distribution	Normal	Normal or Uniform (innovation distribution)	Thursday	1.02		Acheron	0.92				
+Normal mean	100	Used only when Normal is selected	Friday	0.97		Hadley's Hope	1.1				
+Normal std deviation	12	Positive; measured before capacity / trend	Saturday	0.8		Thedus	0.76				
+Uniform minimum	75	Used only when Uniform is selected	Sunday	0.6		Calpamos	1.05				
+Uniform maximum	125	Must exceed the minimum				G-435	0.98				
+Correlation rho	0.86	0 to 0.99; larger = smoother / more persistent				Anchorpoint	0.8				
+Daily trend rate	0.001	0.001 means +0.1% per day (compounded)				Sevastopol	1.15				
+Random seed	2026	Change this integer for another reproducible scenario				Tartarus	0.9				
+Active mean	"=IF(B7=""Normal"",B8,AVERAGE(B10:B11))"	Read-only: follows the chosen distribution				LV-223	1.08				
+Active std deviation	"=IF(B7=""Normal"",B9,(B11-B10)/SQRT(12))"	Read-only: follows the chosen distribution									
+Days generated	=MAX(3,MIN(730,B6-B5+1))	Guarded to 3..730 days									
+Active parameter labels	"=IF(B7=""Normal"",""Mean / standard deviation"",""Minimum / maximum"")"										
+Configuration status	"=IFERROR(IF(AND(B4=INT(B4),B4>=1,B4<=12,ISNUMBER(B5),ISNUMBER(B6),B6-B5+1>=3,B6-B5+1<=730,OR(B7=""Normal"",B7=""Uniform""),B8>=0,B9>=0,B10>=0,B11>B10,B12>=0,B12<=0.99,B13>-1,B13<=0.1,B14=INT(B14),COUNT(E4:E10)=7,MIN(E4:E10)>=0,COUNT(H4:H15)=12,MIN(H4:H15)>=0,COUNT(C22:C27)=6,MIN(C22:C27)>=1,COUNT(D22:D27)=6,MIN(D22:D27)>=0,COUNT(E22:E27)=6,MIN(E22:E27)>=0,MAX(E22:E27)<=1,COUNTA(G4:INDEX(G4:G15,B4))=B4,COUNTUNIQUE(G4:INDEX(G4:G15,B4))=B4,COUNTIF(G4:INDEX(G4:G15,B4),""Total"")=0),""READY"",""CHECK INPUTS""),""CHECK INPUTS"")"	Read-only: invalid settings stop Data generation with a clear message.									
+EVENTS / BELL-SHAPED MULTIPLIERS											
+Event name	Start date	Duration (days)	Peak factor	Mine probability	NOTES						
+Refinery outage	=$B$5+24	7	0.15	1	<1 drop; >1 spike; 1 disabled. Probability is decided once per event and mine.						
+Rich ore seam	=$B$5+58	5	2.3	0.65	<1 drop; >1 spike; 1 disabled. Probability is decided once per event and mine.						
+Dust storm	=$B$5+94	9	0.3	0.8	<1 drop; >1 spike; 1 disabled. Probability is decided once per event and mine.						
+New extraction rig	=$B$5+130	6	1.9	0.5	<1 drop; >1 spike; 1 disabled. Probability is decided once per event and mine.						
+Optional event 5	=$B$5+155	4	1	1	<1 drop; >1 spike; 1 disabled. Probability is decided once per event and mine.						
+Optional event 6	=$B$5+165	4	1	0.5	<1 drop; >1 spike; 1 disabled. Probability is decided once per event and mine.						
+											
+HOW TO USE											
+1	Edit B4 for mine count, G4:G15 for names, H4:H15 for relative capacity.										
+2	Choose Normal or Uniform in B7. Active labels and moments update in B15:B18.										
+3	Use rho B12 to correlate days; weekday factors E4:E10 and daily trend B13 add structure.										
+4	Configure at least four events in rows 22:27. Change seed B14 to reroll mine selection and noise.										
+5	Open Data for the live formula output and chart. The dashboard Refresh button reads this sheet.										
+6	Output = nonnegative AR(1) baseline x capacity x weekday x compound trend x event multipliers.										
+MODEL NOTES											
+Smoothing	x(t)=mu+rho*(x(t-1)-mu)+sqrt(1-rho^2)*innovation(t), initialized at mu.										
+Distributions	Normal / uniform describe innovations; smoothing and calendar factors transform final output.										
+Events	A Gaussian envelope is truncated to the configured duration; overlapping events multiply.										
+Reproducibility	Seeded SIN/MOD pseudo-random cells are stable when unrelated cells change; no volatile RAND().										
+Limits	Up to 12 mines and 730 days. Output is tonnes/day; negative baselines are clipped to zero.										
+Dashboard	https://task5.evgeniy.win/										
+Source code	https://github.com/e7ol7e/itransition-task5										

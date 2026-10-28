@@ -1,0 +1,9 @@
+*
+!pyproject.toml
+!uv.lock
+!app.py
+!analytics.py
+!report.py
+!generator.py
+!static/
+!static/**
