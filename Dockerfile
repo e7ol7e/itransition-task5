@@ -1,5 +1,5 @@
 FROM ghcr.io/astral-sh/uv:0.12.1 AS uv
-FROM python:3.13-slim
+FROM python:3.15-slim
 COPY --from=uv /uv /usr/local/bin/uv
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 MPLCONFIGDIR=/tmp/matplotlib OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1

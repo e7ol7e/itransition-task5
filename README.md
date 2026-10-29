@@ -132,7 +132,7 @@ charts; full per-series charts are always included.
 
 ## Local setup and tests
 
-Install [uv](https://docs.astral.sh/uv/), then:
+Use Python 3.15 and install [uv](https://docs.astral.sh/uv/), then:
 
 ```powershell
 uv sync
