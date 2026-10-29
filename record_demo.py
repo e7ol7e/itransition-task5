@@ -63,8 +63,9 @@ class Recorder:
         c=self.client
         profiles=c.send('GetProfileList',raw=True)
         self.old_profile=profiles['currentProfileName']
+        if self.old_profile==NAME and 'Task 3.5 VS Code' in profiles['profiles']:self.old_profile='Task 3.5 VS Code'
         if NAME not in profiles['profiles']:c.send('CreateProfile',{'profileName':NAME})
-        else:c.send('SetCurrentProfile',{'profileName':NAME})
+        c.send('SetCurrentProfile',{'profileName':NAME})
         for category,key,value in [('Output','Mode','Simple'),('SimpleOutput','FilePath',str(OUT)),('SimpleOutput','RecFormat2','mkv'),('SimpleOutput','RecQuality','HQ'),('SimpleOutput','RecEncoder','x264')]:
             c.send('SetProfileParameter',{'parameterCategory':category,'parameterName':key,'parameterValue':value})
         alternate=next(p for p in profiles['profiles'] if p!=NAME)
@@ -72,8 +73,9 @@ class Recorder:
         c.send('SetVideoSettings',{'baseWidth':1920,'baseHeight':1080,'outputWidth':1920,'outputHeight':1080,'fpsNumerator':30,'fpsDenominator':1})
         collections=c.send('GetSceneCollectionList',raw=True)
         self.old_collection=collections['currentSceneCollectionName']
+        if self.old_collection==NAME and 'Task 3.5 VS Code' in collections['sceneCollections']:self.old_collection='Task 3.5 VS Code'
         if NAME not in collections['sceneCollections']:c.send('CreateSceneCollection',{'sceneCollectionName':NAME})
-        else:c.send('SetSceneCollection',{'sceneCollectionName':NAME})
+        else:c.send('SetCurrentSceneCollection',{'sceneCollectionName':NAME})
         if not any(s['sceneName']==NAME for s in c.send('GetSceneList',raw=True)['scenes']):c.send('CreateScene',{'sceneName':NAME})
         source='Actual Task 5 Chrome window'
         if not any(i['inputName']==source for i in c.send('GetInputList',raw=True)['inputs']):
@@ -105,7 +107,7 @@ class Recorder:
         try:
             self.stop()
             if self.client:
-                if getattr(self,'old_collection',None):self.client.send('SetSceneCollection',{'sceneCollectionName':self.old_collection})
+                if getattr(self,'old_collection',None):self.client.send('SetCurrentSceneCollection',{'sceneCollectionName':self.old_collection})
                 if getattr(self,'old_profile',None):self.client.send('SetCurrentProfile',{'profileName':self.old_profile})
         finally:
             if self.process:
@@ -128,8 +130,23 @@ def main(record=False):
     changes={'B4':'8','B6':'=DATE(2099,5,30)','B7':'Uniform','B10':'70','B11':'140','B12':'0.92','D23':'2.0','E23':'1','G10':'Calpamos North'}
     originals={'B4':'6','B6':'=DATE(2099,6,29)','B7':'Normal','B10':'75','B11':'125','B12':'0.86','D23':'2.3','E23':'0.65','G10':'Calpamos'}
     def hold(seconds):time.sleep(seconds if record else .25)
+    def pdf_page(page,number):
+        frame=next((f for f in page.frames if f.url.startswith('chrome-extension:')),None)
+        if frame:
+            selector=frame.locator('#pageSelector')
+            selector.wait_for(timeout=60000)
+            selector.fill(str(number));selector.press('Enter')
+        else:
+            # Some headed Chrome builds hide the PDF extension target, although
+            # its native toolbar is rendered. Its page-number field has a fixed
+            # offset within the centered toolbar; this path is visually verified.
+            width=page.evaluate('innerWidth')
+            page.mouse.click(width/2-185,28)
+            page.keyboard.press('Control+a')
+            page.keyboard.insert_text(str(number));page.keyboard.press('Enter')
+        time.sleep(.6)
     with sync_playwright() as p:
-        browser=p.chromium.launch(channel='chrome',headless=not record,args=['--start-fullscreen','--window-size=1920,1080'],ignore_default_args=['--enable-automation'])
+        browser=p.chromium.launch(channel='chrome',headless=not record,args=['--start-fullscreen','--window-size=1920,1080','--enable-features=PdfOopif'],ignore_default_args=['--enable-automation'])
         options={'locale':'en-US','permissions':['clipboard-read','clipboard-write'],'accept_downloads':True}
         if record:options['no_viewport']=True
         else:options['viewport']={'width':1600,'height':1000}
@@ -189,25 +206,29 @@ def main(record=False):
             print('PDF CHECK PASSED:',len(text_reader.pages),'pages,',report.stat().st_size,'bytes',flush=True)
             hold(3)
             pdf=context.new_page()
-            pdf.goto(URL+'api/report/'+data['report_id']+'.pdf?inline=true#zoom=85',wait_until='domcontentloaded',timeout=180000)
-            pdf.bring_to_front();hold(8)
+            pdf.goto(report.resolve().as_uri()+'#zoom=85',wait_until='domcontentloaded',timeout=60000)
+            pdf.bring_to_front();time.sleep(4);pdf_page(pdf,1);hold(8)
             pdf.screenshot(path=str(OUT/'report-cover.png'))
-            pdf.evaluate("location.hash='page=2&zoom=100'");hold(7)
-            pdf.evaluate("location.hash='page=4&zoom=100'");hold(6)
-            pdf.evaluate(f"location.hash='page={case_page}&zoom=100'");hold(7)
+            pdf_page(pdf,2);hold(7)
+            pdf_page(pdf,4);hold(6)
+            pdf_page(pdf,case_page);hold(7)
             pdf.screenshot(path=str(OUT/'report-anomalies.png'))
             dashboard.bring_to_front();dashboard.evaluate('window.scrollTo(0,0)');hold(4)
             if recorder:raw_video=recorder.stop()
             print('End-to-end demonstration complete',flush=True)
         finally:
-            if recorder:recorder.close()
-            if changed:
-                sheet.bring_to_front();sheet.get_by_role('button',name='Parameters',exact=True).click()
-                for cell,value in originals.items():paste(sheet,cell,value)
-                go(sheet,'A1');time.sleep(3)
-                dashboard.locator('#refresh').click();dashboard.wait_for_function("!document.body.classList.contains('busy')",timeout=60000)
-                print('Restored generator defaults',flush=True)
-            context.close();browser.close()
+            try:
+                if recorder:recorder.close()
+            finally:
+                try:
+                    if changed:
+                        sheet.bring_to_front();sheet.get_by_role('button',name='Parameters',exact=True).click()
+                        for cell,value in originals.items():paste(sheet,cell,value)
+                        go(sheet,'A1');time.sleep(3)
+                        dashboard.locator('#refresh').click();dashboard.wait_for_function("!document.body.classList.contains('busy')",timeout=60000)
+                        print('Restored generator defaults',flush=True)
+                finally:
+                    context.close();browser.close()
     if raw_video:
         target=OUT/'Task5-demonstration.mp4'
         subprocess.run([str(FFMPEG),'-y','-i',str(raw_video),'-map','0:v:0','-c:v','copy','-an','-movflags','+faststart',str(target)],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)

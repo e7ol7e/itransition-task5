@@ -6,6 +6,8 @@ snapshot-consistent PDF reporting service. Task 5, Data Engineering.
 - **Generator (anyone with the link can edit):** https://docs.google.com/spreadsheets/d/1uxxmH3IpLPEGzf8j6foVFvSr1yaU-W55qWbIQEBUWQ0/edit
 - **Dashboard:** https://task5.evgeniy.win/
 - **Source:** https://github.com/e7ol7e/itransition-task5
+- **Silent demonstration:** https://task5.evgeniy.win/submission/demo.mp4
+- **Demonstration PDF:** https://task5.evgeniy.win/submission/report.pdf
 
 ## Use it
 
