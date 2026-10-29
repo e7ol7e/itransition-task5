@@ -6,8 +6,8 @@ snapshot-consistent PDF reporting service. Task 5, Data Engineering.
 - **Generator (anyone with the link can edit):** https://docs.google.com/spreadsheets/d/1uxxmH3IpLPEGzf8j6foVFvSr1yaU-W55qWbIQEBUWQ0/edit
 - **Dashboard:** https://task5.evgeniy.win/
 - **Source:** https://github.com/e7ol7e/itransition-task5
-- **Silent demonstration:** https://task5.evgeniy.win/submission/demo.mp4
-- **Sample PDF:** https://task5.evgeniy.win/submission/report.pdf
+- **Silent demonstration:** https://task5.evgeniy.win/submission/demo-20261029.mp4
+- **Sample PDF:** https://task5.evgeniy.win/submission/report-20261029.pdf
 
 ## Use it
 
@@ -221,6 +221,5 @@ The silent submission demonstration and sample PDF are in the local `video/` and
 `artifacts/` folders, excluded from source control. The demonstration records the
 real Google Sheets editor, the deployed dashboard and the generated PDF viewer.
 Reviewed copies are served by Caddy from `/var/www/itransition-task5/submission/`
-as `demo.mp4` and `report.pdf`; video seeking uses normal HTTP range requests.
-The finished video is 1920×1080 at 30 fps, approximately 2 minutes 22 seconds,
-with no audio, narration or subtitles.
+with dated filenames; video seeking uses normal HTTP range requests.
+The video is 1920×1080 at 30 fps, with no audio, narration or subtitles.

@@ -2,7 +2,7 @@
 
 uv run python record_demo.py          # headless live end-to-end verification
 uv run python record_demo.py --record # actual Chrome window, portable OBS, no audio
-Generator changes are restored to defaults in finally, including failed checks.
+Original generator cell contents are restored in finally, including failed checks.
 """
 from __future__ import annotations
 
@@ -128,7 +128,7 @@ def main(record=False):
     OUT.mkdir(exist_ok=True)
     recorder=None;raw_video=None
     changes={'B4':'8','B6':'=DATE(2099,5,30)','B7':'Uniform','B10':'70','B11':'140','B12':'0.92','D23':'2.0','E23':'1','G10':'Calpamos North'}
-    originals={'B4':'6','B6':'=DATE(2099,6,29)','B7':'Normal','B10':'75','B11':'125','B12':'0.86','D23':'2.3','E23':'0.65','G10':'Calpamos'}
+    originals={}
     def hold(seconds):time.sleep(seconds if record else .25)
     def pdf_page(page,number):
         frame=next((f for f in page.frames if f.url.startswith('chrome-extension:')),None)
@@ -153,16 +153,26 @@ def main(record=False):
         context=browser.new_context(**options)
         dashboard=context.new_page();dashboard.goto(URL,wait_until='domcontentloaded',timeout=60000)
         dashboard.wait_for_function('window.currentAnalysis',timeout=60000)
+        if record:
+            window=context.new_cdp_session(dashboard)
+            window_id=window.send('Browser.getWindowForTarget')['windowId']
+            window.send('Browser.setWindowBounds',{'windowId':window_id,'bounds':{'windowState':'fullscreen'}})
+            dashboard.wait_for_function('Math.abs(innerHeight-screen.height)<=2 && Math.abs(innerWidth-screen.width)<=2')
+            window.detach()
         baseline=dashboard.evaluate('currentAnalysis.source.snapshot')
         sheet=context.new_page();sheet.goto(SHEET_URL+'?hl=en',wait_until='domcontentloaded',timeout=60000)
         sheet.locator('#t-name-box').wait_for(timeout=60000)
         sheet.get_by_role('button',name='Parameters',exact=True).click()
+        for cell in changes:
+            go(sheet,cell)
+            originals[cell]=sheet.locator('#t-formula-bar-input').inner_text().rstrip('\n')
+        (OUT/'original-inputs.json').write_text(json.dumps({'snapshot':baseline,'cells':originals},ensure_ascii=False,indent=2),encoding='utf8')
         go(sheet,'A1')
         changed=False
         try:
             dashboard.bring_to_front()
             if record:recorder=Recorder();recorder.start()
-            hold(6)
+            hold(5)
             sheet.bring_to_front();hold(5)
             for cell,value in changes.items():
                 changed=True
@@ -184,6 +194,9 @@ def main(record=False):
             print('LIVE SHEET CHECK PASSED: 8 mines, 150 days, renamed mine, changed distribution and event',flush=True)
             hold(6)
             dashboard.get_by_role('button',name='Calpamos North',exact=True).click();hold(5)
+            dashboard.locator('[name="z_threshold"]').fill('2.5');hold(2)
+            dashboard.get_by_role('button',name='Apply analysis',exact=True).click()
+            dashboard.wait_for_function("!document.body.classList.contains('busy')")
             dashboard.locator('.chart-card').scroll_into_view_if_needed();hold(3)
             dashboard.locator('#chart-type').select_option('bar')
             dashboard.wait_for_function("!document.body.classList.contains('busy')");hold(4)
@@ -192,27 +205,40 @@ def main(record=False):
             dashboard.get_by_role('button',name='Network total',exact=True).click()
             dashboard.locator('#chart-type').select_option('stacked')
             dashboard.wait_for_function("!document.body.classList.contains('busy')");hold(5)
+            dashboard.locator('#show-counterfactual').check();hold(4)
+            dashboard.locator('.investigation-card').evaluate('e=>scrollTo({top:e.getBoundingClientRect().top+scrollY-24,behavior:"smooth"})');hold(4)
+            dashboard.locator('#inspect-date-form button').click()
+            dashboard.wait_for_function("document.querySelector('#inspector-body').innerText.includes('Snapshot')")
+            hold(5)
+            dashboard.locator('#point-inspector').evaluate('e=>e.scrollTo({top:e.scrollHeight,behavior:"smooth"})');hold(4)
+            dashboard.locator('#close-inspector').click()
+            dashboard.locator('.validation-details').evaluate('e=>scrollTo({top:e.getBoundingClientRect().top+scrollY-24,behavior:"smooth"})');hold(5)
             dashboard.locator('#statistics').scroll_into_view_if_needed();hold(6)
             dashboard.locator('#anomalies').scroll_into_view_if_needed();hold(5)
             if dashboard.locator('#next').is_enabled():dashboard.locator('#next').click();hold(3)
             dashboard.evaluate('window.scrollTo(0,0)');hold(3)
             with dashboard.expect_download(timeout=180000) as event:
                 dashboard.locator('#pdf').click()
+                hold(.8)
+                if recorder:recorder.client.send('PauseRecord')
             report=OUT/'Task5-demonstration-report.pdf';event.value.save_as(report)
+            if recorder:recorder.client.send('ResumeRecord')
             data=dashboard.evaluate('currentAnalysis')
             (OUT/'demonstration-analysis.json').write_text(json.dumps(data),encoding='utf8')
             text_reader=PdfReader(report)
             case_page=next((i+1 for i,page in enumerate(text_reader.pages) if '04 / Anomaly casebook' in page.extract_text()),12)
+            validation_page=next(i+1 for i,page in enumerate(text_reader.pages) if '05 / Detector investigation' in page.extract_text())
             print('PDF CHECK PASSED:',len(text_reader.pages),'pages,',report.stat().st_size,'bytes',flush=True)
             hold(3)
             pdf=context.new_page()
             pdf.goto(report.resolve().as_uri()+'#zoom=85',wait_until='domcontentloaded',timeout=60000)
             pdf.bring_to_front();time.sleep(4);pdf_page(pdf,1);hold(8)
             pdf.screenshot(path=str(OUT/'report-cover.png'))
-            pdf_page(pdf,2);hold(7)
-            pdf_page(pdf,4);hold(6)
-            pdf_page(pdf,case_page);hold(7)
+            pdf_page(pdf,2);hold(5)
+            pdf_page(pdf,case_page);hold(6)
             pdf.screenshot(path=str(OUT/'report-anomalies.png'))
+            pdf_page(pdf,validation_page);hold(5)
+            pdf.screenshot(path=str(OUT/'report-validation.png'))
             dashboard.bring_to_front();dashboard.evaluate('window.scrollTo(0,0)');hold(4)
             if recorder:raw_video=recorder.stop()
             print('End-to-end demonstration complete',flush=True)
@@ -226,7 +252,15 @@ def main(record=False):
                         for cell,value in originals.items():paste(sheet,cell,value)
                         go(sheet,'A1');time.sleep(3)
                         dashboard.locator('#refresh').click();dashboard.wait_for_function("!document.body.classList.contains('busy')",timeout=60000)
-                        print('Restored generator defaults',flush=True)
+                        restored=dashboard.evaluate('currentAnalysis.source.snapshot')
+                        if restored!=baseline:
+                            for _ in range(8):
+                                time.sleep(2)
+                                dashboard.locator('#refresh').click();dashboard.wait_for_function("!document.body.classList.contains('busy')",timeout=60000)
+                                restored=dashboard.evaluate('currentAnalysis.source.snapshot')
+                                if restored==baseline:break
+                        if restored!=baseline:raise RuntimeError('Generator restoration did not reproduce the original snapshot; original cells are saved in video/original-inputs.json.')
+                        print('Restored exact original generator inputs and snapshot',flush=True)
                 finally:
                     context.close();browser.close()
     if raw_video:
