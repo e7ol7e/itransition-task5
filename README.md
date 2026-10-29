@@ -162,3 +162,7 @@ temporary directory and a health check. No credentials are needed.
 The silent submission demonstration and sample PDF are in the local `video/` and
 `artifacts/` folders, excluded from source control. The demonstration records the
 real Google Sheets editor, the deployed dashboard and the generated PDF viewer.
+Reviewed copies are served by Caddy from `/var/www/itransition-task5/submission/`
+as `demo.mp4` and `report.pdf`; video seeking uses normal HTTP range requests.
+The finished video is 1920×1080 at 30 fps, approximately 2 minutes 22 seconds,
+with no audio, narration, subtitles, or Codex panel.

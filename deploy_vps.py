@@ -9,7 +9,13 @@ BLOCK='''
 # Task 5 mining observatory via Cloudflare Tunnel: task5.evgeniy.win.
 :5004 {
     bind 127.0.0.1
-    reverse_proxy 127.0.0.1:5005
+    handle /submission/* {
+        root * /var/www/itransition-task5
+        file_server
+    }
+    handle {
+        reverse_proxy 127.0.0.1:5005
+    }
 }
 '''
 
