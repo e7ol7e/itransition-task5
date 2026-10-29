@@ -24,6 +24,11 @@ snapshot-consistent PDF reporting service. Task 5, Data Engineering.
    degree 1–4. Tune any detection parameters and click **Apply analysis**.
 6. **Export PDF report** downloads the complete report for the displayed snapshot
    and settings, including all mines, all four tests, charts and an anomaly casebook.
+7. Click a chart point, an anomaly's **Inspect** button, or choose any date in the
+   **Investigation lab**. See the actual calculation and eligibility for all four
+   detectors. Network observations include each mine's contribution to the deviation.
+8. Enable **No-event comparison** to overlay the same-seed counterfactual. The lab
+   compares detector overlap, unique contributions and coverage of injected events.
 
 There is no Apps Script, server-generated production dataset, or canned-data
 fallback. Python prepares formula setup files, then reads the actual Google Sheet.
@@ -63,9 +68,54 @@ baseline's stationary variance before clipping and seasonal adjustments.
 `generator.py` contains the full cell formulas and creates `generator/*.tsv`,
 rich-text HTML and `cells.json`. The live sheet uses ordinary `LET`, `SCAN`, `MAP`,
 `SEQUENCE`, `NORM.S.INV`, `INDEX`, and arithmetic formulas. No script runs in it.
-To recreate the workbook, add Parameters and Data tabs, paste the matching HTML
+To recreate the workbook, add Parameters, Data and Audit tabs, paste the matching HTML
 tables at A1, and insert a chart with ranges Data!A1:A731 and Data!N1:N731.
 `sheet_setup.py` automates layout of an already populated public sheet.
+
+## Investigation and controlled validation
+
+The formula-only **Audit** tab references the existing Data values and calculates
+a separate no-event stream with identical seed, noise, capacity, calendar factors
+and trend. Six event records include the formula-selected mine count; per-mine
+event masks identify active windows after the probability selection. Neutral,
+unselected, weak and out-of-range events remain visible rather than disappearing.
+
+The dashboard reads **one raw CSV export** of Audit!A1:AL738, including metadata
+and observations. Visualization-query CSV is deliberately avoided: mixed-type
+metadata columns can otherwise lose text through type inference. The reader checks
+observed output against the no-event stream multiplied by the exported event
+envelopes (rounding tolerance 0.011 t), validates affected mine counts, and rejects
+inconsistent exports. It does not generate a replacement production dataset.
+
+A **material event day** has an active event mask, an absolute net effect of at
+least **0.01 t**, and a relative net effect of at least **5%** against the rounded
+no-event output. Positive output against a zero counterfactual has undefined
+percentage and qualifies when its absolute effect is material. Network labels
+use the aggregate effect, so opposing or diluted mine effects can fall below the
+threshold. Coverage counts flagged material days divided by all material days;
+no material days means not applicable. An event is detected when at least one of
+its material days is flagged; its full hit/miss counts remain visible.
+
+This is controlled simulator evaluation, **not real-world incident accuracy**.
+Flags outside event windows are not automatically false positives. Recovery,
+weekday patterns, trends and noise can trigger the raw tests. Overlapping events
+share their combined net effect; coincidence does not establish an individual
+cause. Disabled detectors retain raw evidence but cannot contribute to the enabled
+union. Pairwise overlap is descriptive, not independent confidence.
+
+Inspection uses `/api/inspect/{report_id}?series=...&date=...`, bound to the same
+immutable analysis handle as PDF export. Grubbs evidence shows the actual maximum
+candidate and critical value on each executed pass, including the stopping pass.
+Mine contribution tables reconcile output minus the trailing mean (or full-series
+mean during warm-up); printed values may differ slightly because of rounding.
+The PDF includes detector overlap, validation, event coverage, Grubbs passes and
+up to 20 largest network deviation contribution tables, alongside the complete
+existing anomaly casebook.
+
+To add or refresh **only Audit**, run `uv run python install_audit.py`. Existing
+Parameters and Data cells are preserved. Set `AUDIT_GID` in `generator.py` to the
+new tab's gid if recreating the workbook. `sync_sheet.py` is a full reset utility
+that installs default Parameters/Data values; it is not the Audit update workflow.
 
 ## Statistical definitions
 
@@ -111,6 +161,8 @@ References: [NIST Grubbs test](https://www.itl.nist.gov/div898/handbook/eda/sect
 
 - `generator.py`: spreadsheet cell definitions and reproducible setup artifacts.
 - `analytics.py`: CSV validation, descriptive statistics, four tests and trends.
+- `investigation.py`: formula-export reconciliation, controlled validation and
+  per-observation evidence; no detector rule overrides.
 - `app.py`: FastAPI source reader, analysis API, bounded snapshot/result caches.
 - `report.py`: paginated ReportLab PDF with Matplotlib charts and Unicode fonts.
 - `static/`: responsive dashboard; native SVG charts, no external chart runtime.
@@ -121,7 +173,9 @@ names distinct. Output above 1e12 tonnes/day is rejected as implausible and to
 keep numerical operations bounded. Invalid/formula-error rows cause an explicit refresh failure;
 the previous displayed snapshot stays visible and is not silently replaced.
 
-A SHA-256-derived content ID identifies each dataset. Changing detection settings
+A SHA-256-derived content ID identifies observed data, event metadata, masks and
+counterfactuals; a separate data-only ID makes output preservation verifiable.
+Changing detection settings
 reuses its immutable in-memory snapshot. PDF exports use an analysis handle bound
 to the data, fetch time and full settings, avoiding a hidden re-fetch during export.
 The service retains the most recent 12 snapshots/results; expired exports return
@@ -137,7 +191,7 @@ Use Python 3.15 and install [uv](https://docs.astral.sh/uv/), then:
 ```powershell
 uv sync
 uv run python generator.py
-uv run python -m unittest test_analytics test_api -v
+uv run python -m unittest discover -v
 uv run uvicorn app:app --host 127.0.0.1 --port 8765
 ```
 
@@ -145,6 +199,11 @@ Open http://127.0.0.1:8765/. The spreadsheet must retain link viewing access.
 The tests use independent numerical references, including NIST's Grubbs example,
 known cubic fits, constant/zero series, leakage-free moving averages, CSV failure
 cases, per-date totals, API validation and PDF evidence/disposition checks.
+Investigation tests cover reconciliation failures, weak/overlapping effects,
+zero baselines, disabled detectors, pass traces and immutable inspection handles.
+With the server running, `uv run python check_browser.py` checks the live lab,
+chart/register/date inspection, chart modes, method selection, refresh, PDF export
+and mobile layout. Pass a deployed base URL to run it against the public service.
 
 ## Deployment
 

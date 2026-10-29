@@ -5,5 +5,6 @@
 !analytics.py
 !report.py
 !generator.py
+!investigation.py
 !static/
 !static/**

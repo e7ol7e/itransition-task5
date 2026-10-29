@@ -13,6 +13,7 @@ os.environ.setdefault('OMP_NUM_THREADS', '1')
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 from scipy.stats import t
+from investigation import enrich
 
 METHODS = {"iqr": "IQR rule", "zscore": "Z-score", "moving": "Moving average", "grubbs": "Grubbs"}
 
@@ -66,7 +67,7 @@ def parse_csv(text: str):
             "fetched_at": datetime.now(timezone.utc).isoformat(timespec='seconds')}
 
 
-def grubbs(values, alpha=0.05, iterations=1):
+def grubbs(values, alpha=0.05, iterations=1, trace=None):
     """Two-sided Grubbs: sample SD, Student-t upper alpha/(2*n), one point per pass.
 
     Repeated removal is explicitly exploratory; it is not generalized ESD and does
@@ -81,11 +82,17 @@ def grubbs(values, alpha=0.05, iterations=1):
         sample = np.asarray(values)[remaining]
         sd = float(np.std(sample, ddof=1))
         if sd < 1e-12:
+            if trace is not None:
+                trace.append({'pass': step + 1, 'n': n, 'candidate_index': None})
             break
         scores = np.abs(sample - np.mean(sample)) / sd
         pos = int(np.argmax(scores))
         critical_t = float(t.isf(alpha / (2 * n), n - 2))
         critical = (n - 1) / np.sqrt(n) * np.sqrt(critical_t ** 2 / (n - 2 + critical_t ** 2))
+        if trace is not None:
+            trace.append({'pass': step + 1, 'n': n, 'candidate_index': remaining[pos],
+                          'score': float(scores[pos]), 'critical': float(critical),
+                          'rejected': bool(scores[pos] > critical)})
         if scores[pos] <= critical:
             break
         found[remaining.pop(pos)] = {"score": float(scores[pos]), "critical": float(critical), "pass": step + 1}
@@ -107,7 +114,8 @@ def analyze_series(name, values, dates, settings: Settings):
     moving = [None] * n
     percent = [None] * n
     zscores = (np.abs(y - mean) / sd).tolist() if sd > 1e-12 else [0.] * n
-    g = grubbs(y, settings.grubbs_alpha, settings.grubbs_iterations)
+    passes = []
+    g = grubbs(y, settings.grubbs_alpha, settings.grubbs_iterations, trace=passes)
     flags = {key: [] for key in METHODS}
     anomalies = []
     for index, value in enumerate(y):
@@ -141,7 +149,7 @@ def analyze_series(name, values, dates, settings: Settings):
             "stats": {"mean": mean, "std": sd, "median": median, "q1": q1, "q3": q3, "iqr": iqr,
                       "minimum": float(y.min()), "maximum": float(y.max()), "total": float(y.sum())},
             "bounds": {"iqr_lower": lower, "iqr_upper": upper}, "flags": flags,
-            "anomalies": anomalies, "episodes": episodes, "trend_degree": degree}
+            "anomalies": anomalies, "episodes": episodes, "trend_degree": degree, "grubbs_passes": passes}
 
 
 def analyze(snapshot, settings: Settings):
@@ -149,7 +157,7 @@ def analyze(snapshot, settings: Settings):
     dates = snapshot['dates']
     series = [analyze_series(name, matrix[:, index], dates, settings) for index, name in enumerate(snapshot['mines'])]
     total = analyze_series('Total', matrix.sum(axis=1), dates, settings)
-    return {"source": {key: value for key, value in snapshot.items() if key != 'values'},
+    result = {"source": {key: value for key, value in snapshot.items() if key not in {'values', 'audit'}},
             "settings": settings.model_dump(), "series": [total] + series,
             "anomaly_count": sum(len(s['anomalies']) for s in series),
             "methodology": {
@@ -161,3 +169,4 @@ def analyze(snapshot, settings: Settings):
                 "caution": "Raw-output screening: trends, weekday patterns and correlation can trigger tests. Statistical flags are not proof of incidents. Grubbs assumes approximately normal independent observations.",
                 "combination": "Union of enabled methods; a day is counted once per series. Total is a separately tested series, not a sum of mine flags."
             }}
+    return enrich(result, snapshot)

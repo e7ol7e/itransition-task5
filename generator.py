@@ -13,6 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 SHEET_ID = "1uxxmH3IpLPEGzf8j6foVFvSr1yaU-W55qWbIQEBUWQ0"
 SHEET_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit"
+AUDIT_GID = "390870564"
 NAMES = ["LV-426", "Origae-6", "Fiorina 161", "Acheron", "Hadley's Hope", "Thedus",
          "Calpamos", "G-435", "Anchorpoint", "Sevastopol", "Tartarus", "LV-223"]
 
@@ -67,7 +68,7 @@ def parameters():
     return rows
 
 
-def data_formula(index):
+def data_formula(index, *, include_events=True, rounded=True):
     # Fixed identifiers deliberately avoid A1/R1C1-style LAMBDA names.
     col = chr(66 + index)
     slot = index + 1
@@ -80,13 +81,16 @@ def data_formula(index):
         event = (f"IF(AND(day>={start},day<{start}+{duration},{chance}<{probability}),"
                  f"1+({factor}-1)*EXP(-0.5*((day-({start}+({duration}-1)/2))/MAX(0.25,{duration}/6))^2),1)")
         events.append(event)
-    return (f'=IF(OR({col}1="",Parameters!$B$19<>"READY"),"",LET(mu,Parameters!$B$15,rho,MAX(0,MIN(0.99,Parameters!$B$12)),'
+    output = (f'MAX(0,noise)*Parameters!$H${4+index}*INDEX(Parameters!$E$4:$E$10,WEEKDAY(day,2))*'
+              f'(1+Parameters!$B$13)^(tick-1)*' + ('*'.join(events) if include_events else '1'))
+    output = f'ROUND({output},2)' if rounded else output
+    guard = f'{col}1=""' if include_events else f'Parameters!$B$4<{slot}'
+    return (f'=IF(OR({guard},Parameters!$B$19<>"READY"),"",LET(mu,Parameters!$B$15,rho,MAX(0,MIN(0.99,Parameters!$B$12)),'
             f'baseline,SCAN(mu,SEQUENCE(Parameters!$B$17),LAMBDA(prev,tick,'
             f'mu+rho*(prev-mu)+SQRT(1-rho^2)*IF(Parameters!$B$7="Normal",'
             f'Parameters!$B$9*NORM.S.INV({uniform}),(Parameters!$B$11-Parameters!$B$10)*({uniform}-0.5)))),'
             f'MAP(SEQUENCE(Parameters!$B$17),baseline,LAMBDA(tick,noise,LET(day,Parameters!$B$5+tick-1,'
-            f'ROUND(MAX(0,noise)*Parameters!$H${4+index}*INDEX(Parameters!$E$4:$E$10,WEEKDAY(day,2))*'
-            f'(1+Parameters!$B$13)^(tick-1)*' + '*'.join(events) + ',2))))))')
+            + output + ')))))')
 
 
 def data():
@@ -94,6 +98,40 @@ def data():
     rows.append(['=IF(Parameters!B19<>"READY","CHECK INPUTS ON PARAMETERS TAB",ARRAYFORMULA(TEXT(SEQUENCE(Parameters!B17,1,Parameters!B5,1),"yyyy-mm-dd")))'] +
                 [data_formula(i) for i in range(12)] +
                 ['=IF(Parameters!B19="READY",BYROW(B2:INDEX(M:M,Parameters!B17+1),LAMBDA(values,SUM(values))),"")'])
+    return rows
+
+
+def audit():
+    """One formula-only export: metadata + observed, no-event and label blocks.
+
+    Max 738 rows and 38 columns. No random draw or production value is calculated
+    by Python. The no-event stream retains precision until the reader rounds it.
+    """
+    rows = [[""] * 38 for _ in range(9)]
+    rows[0] = ["kind", "date_or_id"] + [f"actual_{i}" for i in range(1,13)] + [f"no_event_{i}" for i in range(1,13)] + [f"events_{i}" for i in range(1,13)]
+    for i, number in enumerate(range(22,28)):
+        chance = f'MOD(SIN((Parameters!$B$14+mineidx*113+{number}*7919)*78.233)*43758.5453,1)'
+        selected = (f'=SUM(MAP(SEQUENCE(Parameters!$B$4),LAMBDA(mineidx,'
+                    f'IF({chance}<Parameters!$E${number},1,0))))')
+        rows[i+1][:8] = ["event",f"E{i+1}",f'=Parameters!A{number}',f'=TEXT(Parameters!B{number},"yyyy-mm-dd")',
+                          f'=Parameters!C{number}',f'=Parameters!D{number}',f'=Parameters!E{number}',selected]
+    rows[7][0] = "mines"
+    for i in range(12):
+        slot=i+1
+        rows[7][i+2] = f'=IF(Parameters!$B$4>={slot},Parameters!G{i+4},"")'
+        col=chr(66+i)
+        rows[8][i+2] = f'=IF(Parameters!$B$4>={slot},ARRAYFORMULA(Data!{col}2:INDEX(Data!{col}:{col},Parameters!$B$17+1)),"")'
+        rows[8][i+14] = data_formula(i,include_events=False,rounded=False)
+        labels=[]
+        for event,number in enumerate(range(22,28),1):
+            chance=f'MOD(SIN((Parameters!$B$14+{slot}*113+{number}*7919)*78.233)*43758.5453,1)'
+            labels.append(f'IF(AND(day>=Parameters!$B${number},day<Parameters!$B${number}+Parameters!$C${number},'
+                          f'{chance}<Parameters!$E${number},Parameters!$D${number}<>1),"E{event}","")')
+        rows[8][i+26] = (f'=IF(OR(Parameters!$B$4<{slot},Parameters!$B$19<>"READY"),"",'
+                           f'MAP(SEQUENCE(Parameters!$B$17),LAMBDA(tick,LET(day,Parameters!$B$5+tick-1,'
+                           f'TEXTJOIN("|",TRUE,{",".join(labels)})))))')
+    rows[8][0] = '=IF(Parameters!$B$19="READY",ARRAYFORMULA(IF(SEQUENCE(Parameters!$B$17)>0,"observation","")),"CHECK INPUTS")'
+    rows[8][1] = '=IF(Parameters!$B$19="READY",ARRAYFORMULA(Data!A2:INDEX(Data!A:A,Parameters!$B$17+1)),"")'
     return rows
 
 
@@ -118,11 +156,11 @@ def clipboard_html(rows, kind):
 def main():
     out = ROOT / 'generator'
     out.mkdir(exist_ok=True)
-    for name, rows in (("Parameters", parameters()), ("Data", data())):
+    for name, rows in (("Parameters", parameters()), ("Data", data()), ("Audit", audit())):
         with (out / f'{name}.tsv').open('w', newline='', encoding='utf-8') as stream:
             csv.writer(stream, delimiter='\t', lineterminator='\n').writerows(rows)
         (out / f'{name}.html').write_text(clipboard_html(rows, name), encoding='utf-8')
-    (out / 'cells.json').write_text(json.dumps({'Parameters': parameters(), 'Data': data()}), encoding='utf-8')
+    (out / 'cells.json').write_text(json.dumps({'Parameters': parameters(), 'Data': data(), 'Audit': audit()}), encoding='utf-8')
     print('Prepared formula-only generator:', SHEET_URL)
 
 

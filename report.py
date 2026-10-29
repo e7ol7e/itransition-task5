@@ -18,6 +18,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak, KeepTogether
 
 from analytics import METHODS
+from investigation import inspect_day
 
 INK = colors.HexColor('#173e36')
 PALETTE = ['#267761', '#cf9d35', '#5c82a0', '#a0779b', '#cf765c', '#8c9d56', '#618d94', '#a86673', '#6e74a2', '#a48b5e', '#679368', '#b57f44']
@@ -169,6 +170,49 @@ def build_pdf(result):
             story += [table(rows, [26*mm, 25*mm, 25*mm, 20*mm, 25*mm, 53*mm]), Spacer(1, 6*mm)]
     if not number:
         story.append(para('No anomalies meet the enabled detection rules for this snapshot.'))
+    story += [PageBreak(), para('05 / Detector investigation & simulator validation', 'Heading1'),
+              para('Raw detector rules are unchanged. The formula-only Audit tab exports observed output, the same-seed no-event counterfactual and injected event labels together. Material event days require an active label, at least 5% net effect and at least 0.01 tonnes. Coverage measures coincident flags, not causal attribution or real-world incident accuracy.', 'SmallReport'),
+              para('Outside-window flags are not automatically false positives: noise, weekday patterns, trends and post-event recovery can trigger these raw-output screens. Overlapping events share their combined net effect. Disabled detectors remain visible for comparison; only enabled detectors contribute to the union.', 'SmallReport')]
+    for s in result['series']:
+        story.append(para(s['name'], 'Heading2'))
+        comparison = s['comparison']
+        story.append(table([['Detector', 'Raw flags', 'Unique enabled contribution', 'Selection']] + [
+            [METHODS[row['method']], row['flagged'], row['exclusive'] if row['enabled'] else 'n/a', 'Enabled' if row['enabled'] else 'Disabled']
+            for row in comparison['methods']], [53*mm, 30*mm, 54*mm, 37*mm]))
+        story.append(para(f"Enabled union: {comparison['union_count']} dates. Unique contributions exclude dates flagged by any other enabled method. Pairwise raw overlaps follow; diagonal cells equal each detector's flag count.", 'SmallReport'))
+        story.append(table([['Both flag', 'IQR', 'Z-score', 'Moving', 'Grubbs']] + [
+            [METHODS[key]] + [comparison['overlap'][key][other] for other in METHODS] for key in METHODS], [54*mm]+[30*mm]*4))
+        validation = s['validation']
+        if validation['available']:
+            union = validation['union']
+            coverage = 'not applicable' if union['coverage_percent'] is None else f"{union['coverage_percent']:.2f}%"
+            story += [para(f"Material days: {validation['material_days']}; union hits: {union['material_hits']}; missed: {union['material_missed']}; coverage: {coverage}. Union flags outside event windows: {union['outside_windows']}; weak-effect window flags: {union['weak_window_flags']}.", 'SmallReport'),
+                      table([['Detector', 'Material hits', 'Missed', 'Outside windows', 'Weak window']] + [
+                          [METHODS[row['method']], row['material_hits'], row['material_missed'], row['outside_windows'], row['weak_window_flags']]
+                          for row in validation['methods']], [54*mm]+[30*mm]*4), Spacer(1, 3*mm),
+                      table([['Event / start', 'Peak / probability', 'Material days / hits', 'Status']] + [
+                          [f"{row['id']} / {row['name']} / {row['start']} ({row['duration']:g} days)", f"{row['peak']:g}x / {row['probability']*100:g}%", f"{row['material_days']} / {row['detected_days']}", row['status']]
+                          for row in validation['events']], [66*mm, 34*mm, 34*mm, 40*mm])]
+        else:
+            story.append(para(validation['reason'], 'SmallReport'))
+        story.append(para('Grubbs pass evidence', 'Heading2'))
+        for step in s['grubbs_passes']:
+            if step['candidate_index'] is None:
+                text = f"Pass {step['pass']}: constant remaining sample; no rejection."
+            else:
+                text = f"Pass {step['pass']}: n={step['n']}; candidate {source['dates'][step['candidate_index']]}; maximum G={step['score']:.6f}; critical={step['critical']:.6f}; {'rejected' if step['rejected'] else 'not rejected'}."
+            story.append(para(text, 'SmallReport'))
+        story.append(Spacer(1, 5*mm))
+    if total['anomalies']:
+        story += [PageBreak(), para('06 / Network deviation contributions', 'Heading1'),
+                  para('Up to 20 network flags with the largest absolute deviation are shown here. Each mine difference is output minus its trailing mean, or full-series mean during warm-up. Their sum equals the network deviation. All network flags remain in the complete casebook; every date can be inspected in the dashboard.', 'SmallReport')]
+        points = sorted(total['anomalies'], key=lambda p: abs(total['values'][p['index']] - (total['moving_average'][p['index']] if total['moving_average'][p['index']] is not None else total['stats']['mean'])), reverse=True)[:20]
+        for point in points:
+            evidence = inspect_day(result, 'Total', point['date'])
+            story += [para(point['date'], 'Heading2'), para(f"Reference: {evidence['baseline_kind']}; network output {f(evidence['value'])} t; reference {f(evidence['baseline'])} t; difference {f(evidence['value']-evidence['baseline'])} t.", 'SmallReport'),
+                      table([['Mine', 'Output (t)', 'Reference (t)', 'Difference (t)', 'Injected effect (t)']] + [
+                          [row['mine'], f(row['actual']), f(row['baseline']), f(row['delta']), 'n/a' if row['event_effect'] is None else f(row['event_effect'])]
+                          for row in evidence['contributions']], [54*mm]+[30*mm]*4), Spacer(1, 4*mm)]
     def page(canvas, _):
         canvas.saveState()
         canvas.setFillColor(INK)
