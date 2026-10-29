@@ -7,7 +7,7 @@ snapshot-consistent PDF reporting service. Task 5, Data Engineering.
 - **Dashboard:** https://task5.evgeniy.win/
 - **Source:** https://github.com/e7ol7e/itransition-task5
 - **Silent demonstration:** https://task5.evgeniy.win/submission/demo.mp4
-- **Demonstration PDF:** https://task5.evgeniy.win/submission/report.pdf
+- **Sample PDF:** https://task5.evgeniy.win/submission/report.pdf
 
 ## Use it
 
@@ -30,9 +30,8 @@ snapshot-consistent PDF reporting service. Task 5, Data Engineering.
 8. Enable **No-event comparison** to overlay the same-seed counterfactual. The lab
    compares detector overlap, unique contributions and coverage of injected events.
 
-There is no Apps Script, server-generated production dataset, or canned-data
-fallback. Python prepares formula setup files, then reads the actual Google Sheet.
-The dashboard works without Google credentials, API keys or a paid Google API.
+All simulation runs in Google Sheets cell formulas. Python prepares the setup
+files and reads the public sheet; Google credentials and API keys are not needed.
 
 ## Generator model
 
@@ -43,14 +42,14 @@ Normal innovations use the supplied mean and standard deviation. Uniform
 innovations use the midpoint and bounds. The correlated baseline is:
 
 ```
+x[-1] = mean
 x[t] = mean + rho * (x[t-1] - mean) + sqrt(1-rho²) * centered_innovation[t]
-x[0] = mean
 output[t,m] = round(max(0,x[t,m]) * capacity[m] * weekday_factor[t]
                     * (1+daily_trend)^t * product(event_factors[t,m]), 2)
 ```
 
-Normal and uniform describe the **innovations**, not a claim that final output
-retains that distribution after smoothing, calendar effects and events.
+The day index starts at zero. Normal and uniform describe the **innovations**;
+smoothing, clipping, calendar factors and events transform the final output.
 
 Six event slots are provided, four enabled by default. Each has a start date,
 duration, peak multiplier and probability. A seeded draw decides whether each
@@ -224,4 +223,4 @@ real Google Sheets editor, the deployed dashboard and the generated PDF viewer.
 Reviewed copies are served by Caddy from `/var/www/itransition-task5/submission/`
 as `demo.mp4` and `report.pdf`; video seeking uses normal HTTP range requests.
 The finished video is 1920×1080 at 30 fps, approximately 2 minutes 22 seconds,
-with no audio, narration, subtitles, or Codex panel.
+with no audio, narration or subtitles.
